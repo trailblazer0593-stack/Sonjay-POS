@@ -1,0 +1,1335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <link rel="manifest" href="manifest.json">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Offline POS System</title>
+    <style>
+    :root { 
+        --primary: #2c3e50; 
+        --accent: #27ae60; 
+        --danger: #c0392b; 
+        --warning: #f39c12; 
+    }
+
+    /* Base Layout */
+    body { 
+        font-family: 'Segoe UI', sans-serif; 
+        margin: 0; 
+        display: flex; 
+        height: 100vh; 
+        background: #f4f7f6; 
+        overflow: hidden; /* Pinipigilan ang double scroll */
+    }
+    
+    /* Sidebar (PC Version) */
+    #sidebar { 
+        width: 260px; 
+        background: var(--primary); 
+        color: white; 
+        padding: 20px; 
+        display: flex; 
+        flex-direction: column; 
+        flex-shrink: 0;
+        transition: 0.3s;
+    }
+
+    .nav-btn { 
+        width: 100%; 
+        padding: 12px; 
+        margin-bottom: 8px; 
+        cursor: pointer; 
+        background: #34495e; 
+        border: none; 
+        color: white; 
+        text-align: left; 
+        border-radius: 4px; 
+        font-size: 0.95rem;
+    }
+
+    .nav-btn:hover { background: #45627d; }
+    .admin-only { display: none; border-left: 4px solid var(--warning); }
+
+    /* Main Content */
+    #main-content { 
+        flex: 1; 
+        padding: 25px; 
+        overflow-y: auto; 
+        box-sizing: border-box;
+    }
+
+    .section { display: none; }
+    .active { display: block; }
+
+    /* UI Components */
+    .card { 
+        background: white; 
+        padding: 20px; 
+        border-radius: 8px; 
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05); 
+        margin-bottom: 20px; 
+    }
+
+    /* Table & Container Fixes */
+    .table-container { 
+        width: 100%; 
+        overflow-x: auto; 
+        background: white; 
+        border-radius: 8px;
+    }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; background: white; min-width: 500px; }
+    th, td { border: 1px solid #eee; padding: 12px; text-align: left; }
+    th { background: #f8f9fa; }
+    
+    input, select { 
+        padding: 10px; 
+        border: 1px solid #ddd; 
+        border-radius: 4px; 
+        width: 100%; 
+        box-sizing: border-box; 
+        font-size: 16px; /* Iniiwasan ang zoom-in sa mobile inputs */
+    }
+
+    /* Modals */
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); }
+    .modal-content { 
+        background: white; 
+        margin: 5% auto; 
+        padding: 25px; 
+        width: 90%; 
+        max-width: 450px; 
+        border-radius: 8px; 
+        position: relative; 
+    }
+
+    /* Login Overlay */
+    #login-screen { 
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+        background: var(--primary); z-index: 9999; display: flex; 
+        flex-direction: column; align-items: center; justify-content: center; color: white; 
+    }
+
+    /* 📱 MOBILE RESPONSIVE (Kapag phone na ang gamit) */
+    @media (max-width: 768px) {
+        body { flex-direction: column; } /* Pinapatong ang sidebar sa main content */
+
+        #sidebar { 
+            width: 100%; 
+            height: auto; 
+            padding: 10px; 
+            flex-direction: row; /* Horizontal menu sa phone */
+            overflow-x: auto; /* Pwedeng i-swipe ang buttons */
+            white-space: nowrap;
+            gap: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        #sidebar h2, #user-display, br { display: none; } /* Tinatago ang store name sa mobile */
+
+        .nav-btn { 
+            width: auto; 
+            margin-bottom: 0; 
+            padding: 10px 15px; 
+            font-size: 0.85rem; 
+            flex-shrink: 0; 
+        }
+
+        #main-content { 
+            padding: 15px; 
+            margin-top: 0; 
+        }
+
+        /* Dash Cards (2 rows, 2 columns sa mobile) */
+        #reports > div[style*="grid-template-columns"] {
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 10px !important;
+        }
+
+        /* POS Layout (Stacking) */
+        #pos > div[style*="display: flex"] {
+            flex-direction: column !important;
+        }
+
+        .modal-content { margin: 20% auto; width: 85%; }
+    }
+
+    /* Printing */
+    @media print {
+        body * { visibility: hidden; }
+        #receipt-print-area, #receipt-print-area * { visibility: visible; }
+        #receipt-print-area { position: absolute; left: 0; top: 0; width: 58mm; }
+    }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+    <h1 style="letter-spacing: 3px;">STORE POS</h1>
+    <p>Enter your Access PIN</p>
+    <input type="password" id="pin-input" 
+           style="width: 250px; max-width: 90%; font-size: 2rem; text-align: center;" 
+           maxlength="4">
+    <br>
+    <button onclick="checkLogin()" 
+            style="padding: 15px 60px; background: var(--accent); color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+        LOGIN
+    </button>
+</div>
+
+<div id="sidebar">
+    <h2 id="store-name">🏪 SMART POS</h2>
+    <div id="user-display" style="font-size: 0.9rem; margin-bottom: 20px; color: #bdc3c7;">Role: Guest</div>
+    <button class="nav-btn" onclick="showSection('pos')">🛒 POS Terminal</button>
+    <button class="nav-btn" onclick="showSection('eloading')">📱 E-Load/GCash</button>
+    <button class="nav-btn" onclick="showSection('inventory')">📦 Inventory</button>
+    <button class="nav-btn admin-only" onclick="showSection('reports')">📊 Reports</button>
+    <button class="nav-btn admin-only" onclick="showSection('expenses')">💸 Expenses</button>
+    <div style="margin-top: auto;">
+        <button class="nav-btn" style="background: var(--danger); width: 100%;" onclick="location.reload()">🔒 Logout</button>
+    </div>
+</div>
+
+<div id="main-content">
+    
+    <div id="pos" class="section active">
+        <div id="low-stock-alert" style="display:none; background: #fff3cd; color: #856404; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #ffeeba;"></div>
+        
+        <div style="display: flex; gap: 20px; flex-wrap: wrap;"> <div style="flex: 2; min-width: 300px;">
+                <input type="text" id="barcode-input" placeholder="Scan Barcode or Search Item..." style="font-size: 1.2rem; margin-bottom: 10px; width: 100%;">
+                <div class="card table-container">
+                    <table id="cart-table">
+                        <thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th><th>Action</th></tr></thead>
+                        <tbody id="cart-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div style="flex: 1; min-width: 300px;">
+                <div class="card" style="background: var(--primary); color: white;">
+                    <h3>Total Amount</h3>
+                    <h1 id="cart-total" style="font-size: 3rem; margin: 0;">₱0.00</h1>
+                    <hr>
+                    <p>Amount Tendered:</p>
+                    <input type="number" id="cash-tendered" style="font-size: 1.5rem; width: 100%; color: black;" placeholder="0.00">
+                    <button onclick="checkout()" style="width:100%; padding: 20px; background: var(--accent); color: white; border: none; font-size: 1.2rem; font-weight: bold; margin-top: 15px; cursor: pointer;">PROCESS PAY</button>
+                </div>
+            </div>
+
+            <div id="receipt-print-area">
+                <div style="width: 58mm; padding: 5px; font-family: monospace; font-size: 11px;">
+                    <center>
+                        <b>SMART POS STORE</b><br>
+                        Official Receipt<br>
+                        --------------------------
+                    </center>
+                    <div id="rec-items"></div>
+                    --------------------------<br>
+                    <div id="rec-totals"></div>
+                    --------------------------<br>
+                    <center>Thank You! Come again.</center>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="eloading" class="section">
+        <h1>Digital Services & Remittance</h1>
+        <div class="card" style="max-width: 500px; margin: auto;">
+            <label>Service Type</label>
+            <select id="service-type" style="margin-bottom: 10px;">
+                <option value="E-Load">E-Loading</option>
+                <option value="GCash Cash-In">GCash Cash-In</option>
+                <option value="GCash Cash-Out">GCash Cash-Out</option>
+                <option value="PayMaya Cash-In">PayMaya Cash-In</option>
+                <option value="PayMaya Cash-Out">PayMaya Cash-Out</option>
+            </select>
+
+            <label>Mobile Number</label>
+            <input type="text" id="service-mobile" placeholder="09XXXXXXXXX" maxlength="11" style="margin-bottom: 10px;">
+
+            <label>Ref No. / Note (Optional)</label>
+            <input type="text" id="service-ref" placeholder="Ref No. or Note" style="margin-bottom: 10px;">
+
+            <label>Amount</label>
+            <input type="number" id="service-amount" oninput="calculateDigitalFee()" placeholder="Enter Amount">
+        
+            <div style="margin-top: 20px; background: #f8f9fa; padding: 15px; border-radius: 5px;">
+                <p>Service Fee: <b id="display-fee">₱0.00</b></p>
+                <h3>Collect: <span id="display-service-total" style="color: var(--accent);">₱0.00</span></h3>
+            </div>
+            <button onclick="processDigital()" style="width:100%; padding: 15px; background: var(--primary); color: white; border: none; cursor: pointer; border-radius: 5px; font-weight: bold; margin-top: 10px;">Submit Digital Sale</button>
+        </div>
+    </div>
+
+    <div id="inventory" class="section">
+        <h1>Inventory Management</h1>
+        <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="admin-only" onclick="openModal('product-modal')" style="background: var(--accent); color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">➕ Add Product</button>
+            <button onclick="exportToExcel('inventory-table', 'Inventory')" style="background: #27ae60; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">📥 Export Excel</button>
+        </div>
+        <div class="card table-container">
+            <table id="inventory-table">
+                <thead><tr><th>Barcode</th><th>Name</th><th>Cost</th><th>Price</th><th>Stock</th><th class="admin-only">Action</th></tr></thead>
+                <tbody id="inventory-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="reports" class="section">
+        <h1>Daily Profit Dashboard</h1>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px;">
+            <div class="card" style="border-bottom: 5px solid #3498db; margin-bottom:0;">Sales<h2 id="dash-sales">₱0.00</h2></div>
+            <div class="card" style="border-bottom: 5px solid var(--accent); margin-bottom:0;">Profit<h2 id="dash-profit">₱0.00</h2></div>
+            <div class="card" style="border-bottom: 5px solid var(--danger); margin-bottom:0;">Exp<h2 id="dash-exp">₱0.00</h2></div>
+            <div class="card" style="background: var(--primary); color: white; margin-bottom:0;">Net<h2 id="dash-net">₱0.00</h2></div>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 20px;">
+            <button onclick="generateDailySummary()" style="padding: 15px 30px; background: #8e44ad; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">
+                📊 Generate Daily Summary
+            </button>
+        </div>
+
+        <div class="card" style="background: #f8f9fa; border: 1px solid #ddd;">
+            <h4>⚙️ Setup Daily Capital</h4>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 140px;">
+                    <label style="font-size: 0.8rem;">Cash in Drawer</label>
+                    <input type="number" id="input-cash-capital" placeholder="Puhunan">
+                </div>
+                <div style="flex: 1; min-width: 140px;">
+                    <label style="font-size: 0.8rem;">Digital Balance</label>
+                    <input type="number" id="input-digital-capital" placeholder="GCash">
+                </div>
+            </div>
+            <button onclick="saveCapitals()" style="width: 100%; margin-top: 10px; padding: 10px; background: #34495e; color: white; border: none; border-radius: 4px;">Set Capitals</button>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+            <div class="card" style="border-left: 5px solid #3498db;">
+                <h4>📱 Digital Wallet</h4>
+                <h3 id="dash-digital-wallet" style="font-size: 1.8rem; color: #3498db;">₱0.00</h3>
+            </div>
+            <div class="card" style="border-left: 5px solid #27ae60;">
+                <h4>💵 Cash on Hand</h4>
+                <h3 id="dash-cash-on-hand" style="font-size: 1.8rem; color: #27ae60;">₱0.00</h3>
+            </div>
+        </div>
+
+        <div class="card table-container">
+            <h3>Daily Close History</h3>
+            <button class="admin-only" onclick="executeDailyClose()" style="background: var(--danger); color: white; padding: 10px 20px; border: none; margin-bottom: 10px; border-radius: 4px;">🔒 CLOSE DAY</button>
+            <table id="close-history-table">
+                <thead><tr><th>Date</th><th>Sales</th><th>Profit</th><th>By</th><th>ID</th></tr></thead>
+                <tbody id="history-body"></tbody>
+            </table>
+        </div>
+
+        <div class="card" style="border-top: 4px solid #e74c3c;">
+            <h3 style="color: #e74c3c;">⚙️ Data Management</h3>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button onclick="resetDailyDashboard()" style="background: #e74c3c; color: white; padding: 10px; border: none; border-radius: 4px; flex: 1; min-width: 120px;">🗑️ RESET</button>
+                <button onclick="pullFromCloud()" style="background: #3498db; color: white; padding: 10px; border: none; border-radius: 4px; flex: 1; min-width: 120px;">☁️ SYNC CLOUD</button>
+                <button onclick="downloadBackup()" style="background: #3498db; color: white; padding: 10px; border: none; border-radius: 4px; flex: 1; min-width: 120px;">📥 BACKUP</button>
+                <button onclick="document.getElementById('restore-file').click()" style="background:#f39c12; color:white; padding:10px; border:none; border-radius:4px; flex:1; min-width: 120px;">📤 RESTORE</button>
+            </div>
+            <input type="file" id="restore-file" accept=".json" style="display:none;" onchange="handleRestore(event)">
+        </div>
+
+        <div class="card table-container">
+            <h3>📱 Remittance Log</h3>
+            <button onclick="printRemittanceReport()" style="background:var(--primary); color:white; padding:10px; border:none; border-radius:4px; margin-bottom: 10px;">🖨️ Print Report</button>
+            <table id="remittance-table">
+                <thead><tr><th>Time</th><th>Service</th><th>Mobile</th><th>Total</th><th>Ref</th><th>Action</th></tr></thead>
+                <tbody id="remittance-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="expenses" class="section">
+        <div class="card">
+            <h2>💸 Expenses Management</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+                <input type="text" id="exp-note" placeholder="Reason" style="flex: 2; min-width: 200px;">
+                <input type="number" id="exp-amount" placeholder="Amount" style="flex: 1; min-width: 100px;">
+                <button onclick="saveExpense()" style="background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; width: 100%;">Add Expense</button>
+            </div>
+            <div class="table-container">
+                <table id="expense-table">
+                    <thead><tr><th>Date</th><th>Reason</th><th>Amount</th><th>Action</th></tr></thead>
+                    <tbody id="expense-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div> <div id="product-modal" class="modal">
+    <div class="modal-content">
+        <h3>Product Details</h3>
+        <input type="text" id="p-barcode" placeholder="Barcode ID" style="margin-bottom:10px;">
+        <input type="text" id="p-name" placeholder="Item Name" style="margin-bottom:10px;">
+        <input type="number" id="p-cost" placeholder="Cost Price" style="margin-bottom:10px;">
+        <input type="number" id="p-price" placeholder="Selling Price" style="margin-bottom:10px;">
+        <input type="number" id="p-stock" placeholder="Initial Stock" style="margin-bottom:10px;">
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <button onclick="saveProduct()" style="flex: 1; background: var(--accent); color: white; border: none; padding: 15px; cursor: pointer; border-radius: 4px;">Save</button>
+            <button onclick="closeModal('product-modal')" style="flex: 1; background: #95a5a6; color: white; border: none; padding: 15px; cursor: pointer; border-radius: 4px;">Cancel</button>
+        </div>
+    </div>
+</div>
+
+</body>
+
+<script>
+// --- DATABASE INITIALIZATION ---
+let products = JSON.parse(localStorage.getItem('pos_inventory')) || [];
+let sales = JSON.parse(localStorage.getItem('pos_sales')) || [];
+let expenses = JSON.parse(localStorage.getItem('pos_expenses')) || [];
+let history = JSON.parse(localStorage.getItem('pos_history')) || [];
+let cart = [];
+let currentUser = null;
+
+const ACCOUNTS = { "1234": {name: "Cashier", role: "cashier"}, "0000": {name: "Admin", role: "admin"} };
+
+// --- LOGIN & ACCESS ---
+function checkLogin() {
+    let pin = document.getElementById('pin-input').value;
+    if (ACCOUNTS[pin]) {
+        currentUser = ACCOUNTS[pin];
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('user-display').innerText = `User: ${currentUser.name} (${currentUser.role})`;
+        if(currentUser.role === 'admin') document.querySelectorAll('.admin-only').forEach(e => e.style.display = 'block');
+        refreshAll();
+    } else { alert("Invalid PIN!"); }
+}
+
+function showSection(id) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    
+    if (id === 'reports') {
+        updateDashboard();
+        renderRemittanceLog();
+    }
+
+    if (id === 'expenses') {
+        renderExpenses();
+    }
+}
+
+// --- INVENTORY LOGIC ---
+function saveProduct() {
+    let p = {
+        barcode: document.getElementById('p-barcode').value,
+        name: document.getElementById('p-name').value,
+        cost: parseFloat(document.getElementById('p-cost').value),
+        price: parseFloat(document.getElementById('p-price').value),
+        stock: parseInt(document.getElementById('p-stock').value)
+    };
+    if(!p.barcode || !p.name) return alert("Punan lahat!");
+    products.push(p);
+    localStorage.setItem('pos_inventory', JSON.stringify(products));
+    closeModal('product-modal');
+    refreshAll();
+}
+
+function renderInventory() {
+    let html = '';
+    
+    // Siguraduhin na ang 'products' ay may laman
+    if (!products || products.length === 0) {
+        const container = document.getElementById('inventory-body');
+        if (container) container.innerHTML = '<tr><td colspan="6" style="text-align:center;">Walang produkto sa inventory.</td></tr>';
+        return;
+    }
+
+    products.forEach((p, i) => {
+        // --- BINAGO: Tinanggal ang IF-condition para laging may buttons ---
+        let buttons = `
+            <button onclick="editProduct(${i})" style="background:var(--warning); color:white; border:none; padding:5px 8px; border-radius:3px; cursor:pointer;">Edit</button>
+            <button onclick="deleteProduct(${i})" style="background:var(--danger); color:white; border:none; padding:5px 8px; border-radius:3px; cursor:pointer;">X</button>
+        `;
+
+        html += `
+            <tr>
+                <td>${p.barcode}</td>
+                <td>${p.name}</td>
+                <td>₱${(p.cost || 0).toFixed(2)}</td>
+                <td>₱${(p.price || 0).toFixed(2)}</td>
+                <td style="color:${p.stock < 5 ? 'red':'black'}"><b>${p.stock}</b></td>
+                <td>${buttons}</td>
+            </tr>`;
+    });
+
+    const inventoryBody = document.getElementById('inventory-body');
+    if (inventoryBody) {
+        inventoryBody.innerHTML = html;
+    }
+    
+    if (typeof checkLowStock === "function") checkLowStock();
+}
+
+// --- ADDED: DELETE & EDIT FUNCTIONS ---
+
+function deleteProduct(index) {
+    if(confirm(`Sigurado ka bang buburahin ang "${products[index].name}"?`)) {
+        products.splice(index, 1);
+        localStorage.setItem('pos_inventory', JSON.stringify(products));
+        renderInventory();
+    }
+}
+
+function editProduct(index) {
+    let p = products[index];
+    let newStock = prompt(`Update stock para sa ${p.name}:`, p.stock);
+    let newPrice = prompt(`Update selling price para sa ${p.name}:`, p.price);
+    
+    if(newStock !== null && newPrice !== null) {
+        products[index].stock = parseInt(newStock);
+        products[index].price = parseFloat(newPrice);
+        localStorage.setItem('pos_inventory', JSON.stringify(products));
+        renderInventory();
+        alert("Product updated!");
+    }
+}
+
+// 1. Helper function para sa Cloud Sync
+async function syncToCloud(txnData) {
+    // ILAGAY DITO ANG URL MULA SA GOOGLE APPS SCRIPT DEPLOYMENT
+    const scriptURL = "YOUR_GOOGLE_SCRIPT_URL_HERE";
+    
+    try {
+        await fetch(scriptURL, {
+            method: 'POST',
+            mode: 'no-cors', // Mahalaga para sa Google Apps Script redirection
+            body: JSON.stringify(txnData),
+            headers: { 'Content-Type': 'application/json' }
+        });
+        console.log("Cloud Sync: Success");
+    } catch (error) {
+        console.error("Cloud Sync: Error", error);
+    }
+}
+
+// 2. Ang iyong Main Function
+async function processDigital() {
+    let amt = parseFloat(document.getElementById('service-amount').value);
+    let type = document.getElementById('service-type').value;
+    let mobile = document.getElementById('service-mobile').value;
+    let ref = document.getElementById('service-ref').value;
+
+    if(!amt || !mobile) return alert("Paki-lagay ang Amount at Mobile Number!");
+
+    let fee = 0;
+    if (type.includes("E-Load")) {
+        fee = Math.ceil(amt / 1000) * 5; 
+    } else if (type.includes("Cash-In")) {
+        fee = Math.ceil(amt / 1000) * 10; 
+    } else if (type.includes("Cash-Out")) {
+        fee = Math.ceil(amt / 1000) * 15; 
+    }
+
+    let totalToCollect = amt + fee;
+
+    let txn = { 
+        id: "DIG-" + Date.now(), 
+        type: type,
+        mobile: mobile,
+        ref: ref,
+        amount: amt, // Idinagdag para sa malinaw na report sa Google Sheets
+        total: totalToCollect, 
+        fee: fee, 
+        profit: fee, 
+        timestamp: new Date().toISOString() 
+    };
+
+    // --- STEP A: SAVE LOCALLY ---
+    sales.push(txn);
+    localStorage.setItem('pos_sales', JSON.stringify(sales));
+    
+    // --- STEP B: SEND TO CLOUD (GOOGLE SHEETS) ---
+    // Gagamit tayo ng await para masiguradong nasubukan i-sync bago mag-alert
+    syncToCloud(txn);
+    
+    alert(`TRANSACTION SAVED & SYNCED!\nType: ${type}\nTotal: ₱${totalToCollect.toFixed(2)}`);
+    
+    // Clear inputs
+    document.getElementById('service-amount').value = '';
+    document.getElementById('service-mobile').value = '';
+    document.getElementById('service-ref').value = '';
+    
+    if (typeof refreshAll === "function") {
+        refreshAll();
+    } else {
+        updateDashboard();
+        if (typeof calculateDigitalFee === "function") calculateDigitalFee();
+    }
+}
+
+function renderRemittanceLog() {
+    const today = new Date().toLocaleDateString();
+    // I-filter lang ang mga transactions na may ID na nagsisimula sa "DIG-"
+    const digitalTxns = sales.filter(s => 
+        s.id.startsWith("DIG-") && new Date(s.timestamp).toLocaleDateString() === today
+    );
+
+    let html = '';
+    let grandTotal = 0;
+
+    digitalTxns.forEach(txn => {
+    grandTotal += txn.total;
+    
+    // 1. Kunin ang type at gawing lowercase para sa checking
+    let typeText = txn.type || ""; 
+    let typeColor = "#2c3e50"; // Default color (Black/Dark Gray)
+
+    // 2. Logic para sa kulay
+    if (typeText.toLowerCase().includes("in")) {
+        typeColor = "#27ae60"; // Green for Cash-In
+    } else if (typeText.toLowerCase().includes("out")) {
+        typeColor = "#e74c3c"; // Red for Cash-Out
+    }
+
+    let time = new Date(txn.timestamp).toLocaleString([], { 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });  
+
+    // 3. I-apply ang style="color: ${typeColor}" sa Service column
+    html += `
+            <tr>
+                <td>${time}</td>
+                <td style="color: ${typeColor}; font-weight: bold;">${typeText}</td>
+                <td><b>${txn.mobile}</b></td>
+                <td>₱${txn.total.toFixed(2)}</td>
+                <td><small>${txn.ref || '-'}</small></td>
+                <td style="text-align:center;">
+                    <button onclick="deleteDigitalTxn('${txn.id}')" style="background:none; border:none; color:#e74c3c; cursor:pointer; font-size:1.1rem;">🗑️</button>
+                </td>
+            </tr>`;
+    });
+
+    const logTable = document.getElementById('remittance-body'); 
+    if (logTable) {
+        if (digitalTxns.length === 0) {
+            logTable.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px;">No transactions today.</td></tr>';
+        } else {
+            html += `
+                <tr style="background:#f8f9fa; font-weight:bold;">
+                    <td colspan="3" style="text-align:right; padding:10px;">Total Remittance:</td>
+                    <td style="padding:10px;">₱${grandTotal.toFixed(2)}</td>
+                    <td colspan="2"></td>
+                </tr>`;
+            logTable.innerHTML = html;
+        }
+    }
+}
+
+// Function para makapag-delete sa log kung sakaling nagkamali
+function deleteDigitalTxn(id) {
+    if (confirm("Sigurado ka bang buburahin ang remittance record na ito?")) {
+        sales = sales.filter(s => s.id !== id);
+        localStorage.setItem('pos_sales', JSON.stringify(sales));
+        refreshAll(); // I-refresh ang log at dashboard
+    }
+}
+
+function printRemittanceReport() {
+    const content = document.getElementById('remittance-table').outerHTML;
+    const today = new Date().toDateString();
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <html>
+            <head>
+                <title>Remittance Report - ${today}</title>
+                <style>
+                    body { font-family: sans-serif; padding: 20px; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+                    h2 { color: #2c3e50; }
+                </style>
+            </head>
+            <body>
+                <h2>📱 Digital Remittance Report</h2>
+                <p>Date: ${today}</p>
+                ${content}
+                <p style="margin-top:20px;"><i>Printed by: ${currentUser.name}</i></p>
+            </body>
+        </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+}
+
+function resetDailyDashboard() {
+    const adminPIN = "0000"; 
+    let enteredPin = prompt("⚠️ MASTER RESET: Enter Admin PIN to clear all data:");
+
+    if (enteredPin === adminPIN) {
+        if (confirm("Gusto mo ba munang mag-save ng BACKUP bago burahin ang lahat?")) {
+            downloadBackup(); 
+        }
+
+        if (confirm("RECONFIRM: Sigurado ka na ba? Lahat ng benta at PUHUNAN ay mawawala.")) {
+            // 1. Burahin ang Transaction Data
+            sales = [];
+            localStorage.setItem('pos_sales', JSON.stringify(sales));
+            
+            expenses = [];
+            localStorage.setItem('pos_expenses', JSON.stringify(expenses));
+
+            history = [];
+            localStorage.setItem('pos_history', JSON.stringify(history));
+
+            if (typeof dailyReports !== 'undefined') {
+                dailyReports = [];
+                localStorage.setItem('pos_daily_reports', JSON.stringify([]));
+            }
+
+            // 2. BURAHIN ANG CAPITAL/PUHUNAN (Para mag-zero ang Cash on Hand at Digital Balance)
+            localStorage.removeItem('pos_capital');
+            localStorage.removeItem('pos_digital_capital');
+
+            // 3. I-zero ang UI (Dashboard & Inputs)
+            document.getElementById('dash-sales').innerText = "₱0.00";
+            document.getElementById('dash-profit').innerText = "₱0.00";
+            document.getElementById('dash-net').innerText = "₱0.00";
+            
+            // I-zero din ang Cash at Digital Balance displays
+            if(document.getElementById('dash-cash-on-hand')) document.getElementById('dash-cash-on-hand').innerText = "₱0.00";
+            if(document.getElementById('dash-digital-wallet')) document.getElementById('dash-digital-wallet').innerText = "₱0.00";
+            
+            // Linisin ang input boxes ng capital
+            if(document.getElementById('input-cash-capital')) document.getElementById('input-cash-capital').value = "";
+            if(document.getElementById('input-digital-capital')) document.getElementById('input-digital-capital').value = "";
+            
+            // 4. I-refresh ang tables at calculation
+            updateDashboard(); // Tawagin ito para siguradong 0 lahat ang math
+            renderRemittanceLog();
+            renderExpenses();
+
+            // --- ITO ANG MGA DAGDAG NA REFRESH PARA SA HISTORY ---
+            if (typeof renderHistory === "function") renderHistory(); 
+            if (typeof renderDailyCloseHistory === "function") renderDailyCloseHistory();
+            // ---------------------------------------------------
+
+            if (typeof renderInventory === "function") renderInventory();
+            
+            alert("System has been fully reset to ₱0.00 including capitals.");
+        }
+    } else if (enteredPin !== null) {
+        alert("ACCESS DENIED: Invalid PIN.");
+    }
+}
+// Function para sa Backup Download
+function downloadBackup() {
+
+    const backup = {
+        meta: {
+            app: "ProPOS",
+            version: "1.0",
+            createdAt: new Date().toISOString()
+        },
+        sales: sales || [],
+        products: products || [],
+        expenses: expenses || [],
+        history: history || [],
+        capitals: {
+            cash: localStorage.getItem('pos_capital') || 0,
+            digital: localStorage.getItem('pos_digital_capital') || 0
+        }
+    };
+
+    const dataStr = "data:text/json;charset=utf-8," +
+        encodeURIComponent(JSON.stringify(backup, null, 2));
+
+    const a = document.createElement('a');
+    a.href = dataStr;
+    a.download = "pos_full_backup_" +
+        new Date().toISOString().slice(0, 10) + ".json";
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+}
+
+// --- POS LOGIC ---
+document.getElementById('barcode-input').addEventListener('keypress', function(e) {
+    if(e.key === 'Enter') {
+        let p = products.find(x => x.barcode === this.value);
+        if(p) { addToCart(p); this.value = ''; } else { alert("Not Found!"); }
+    }
+});
+
+function addToCart(p) {
+    if(p.stock <= 0) return alert("Out of stock!");
+    let existing = cart.find(item => item.barcode === p.barcode);
+    if(existing) existing.qty++; else cart.push({...p, qty: 1});
+    renderCart();
+}
+
+function renderCart() {
+    let html = '', total = 0;
+    cart.forEach((item, i) => {
+        let t = item.price * item.qty;
+        total += t;
+        html += `<tr><td>${item.name}</td><td>${item.price}</td><td>${item.qty}</td><td>₱${t}</td><td><button onclick="cart.splice(${i},1);renderCart()">X</button></td></tr>`;
+    });
+    document.getElementById('cart-body').innerHTML = html;
+    document.getElementById('cart-total').innerText = `₱${total.toFixed(2)}`;
+}
+
+function checkout() {
+    let total = cart.reduce((a,b) => a + (b.price * b.qty), 0);
+    let cash = parseFloat(document.getElementById('cash-tendered').value);
+    if(!cash || cash < total) return alert("Kulang ang pera!");
+
+    let txn = {
+        id: "TXN-" + Date.now(),
+        items: [...cart],
+        total: total,
+        cash: cash,
+        profit: cart.reduce((a,b) => a + ((b.price - b.cost) * b.qty), 0),
+        timestamp: new Date().toISOString()
+    };
+
+    // Update Stock
+    cart.forEach(cItem => {
+        let p = products.find(prod => prod.barcode === cItem.barcode);
+        p.stock -= cItem.qty;
+    });
+
+    sales.push(txn);
+    localStorage.setItem('pos_sales', JSON.stringify(sales));
+    localStorage.setItem('pos_inventory', JSON.stringify(products));
+    
+    printReceipt(txn);
+    cart = [];
+    document.getElementById('cash-tendered').value = '';
+    renderCart();
+    updateDashboard();
+    if (typeof refreshAll === "function") refreshAll();
+}
+
+// --- DIGITAL SERVICE ---
+function calculateDigitalFee() {
+    let amt = parseFloat(document.getElementById('service-amount').value) || 0;
+    let type = document.getElementById('service-type').value; 
+    let fee = 0;
+
+    if (amt > 0) {
+        // Gagamit tayo ng .includes() para mahuli ang GCash man o PayMaya
+        if (type.includes("E-Load")) {
+            // P5 for every 1000
+            fee = Math.ceil(amt / 1000) * 5;
+        } 
+        else if (type.includes("Cash-In")) {
+            // P10 for every 1000
+            fee = Math.ceil(amt / 1000) * 10;
+        } 
+        else if (type.includes("Cash-Out")) {
+            // P15 for every 1000
+            fee = Math.ceil(amt / 1000) * 15;
+        }
+    }
+
+    // I-update ang UI
+    document.getElementById('display-fee').innerText = "₱" + fee.toFixed(2);
+    document.getElementById('display-service-total').innerText = "₱" + (amt + fee).toFixed(2);
+}
+
+// --- UTILS ---
+function refreshAll() {
+    renderInventory();
+    updateDashboard();
+    renderRemittanceLog();
+    if (typeof renderHistory === "function") renderHistory();
+}
+
+    
+function updateDashboard() {
+    // 1. KUNIN ANG MGA PUHUNAN
+    let cashCap = parseFloat(localStorage.getItem('pos_capital')) || 0;
+    let digiCap = parseFloat(localStorage.getItem('pos_digital_capital')) || 0;
+
+    if(document.getElementById('input-cash-capital')) {
+        document.getElementById('input-cash-capital').value = cashCap;
+        document.getElementById('input-digital-capital').value = digiCap;
+    }
+
+    // 2. DEFINE FILTERS
+    let today = new Date().toLocaleDateString();
+    let todaySales = sales.filter(s => new Date(s.timestamp).toLocaleDateString() === today);
+    let todayExpenses = expenses.filter(e => new Date(e.timestamp).toLocaleDateString() === today);
+
+    // 3. TODAY'S PERFORMANCE (DITO ANG FIX)
+    // Inalis ang strict "TXN-" filter para masama ang E-Load at GCash sa Total Sales
+    let rev = todaySales.reduce((a, b) => a + (parseFloat(b.total) || 0), 0);
+
+    let prof = todaySales.reduce((a, b) => a + (parseFloat(b.profit) || 0), 0);
+    let totalExpToday = todayExpenses.reduce((a, b) => a + (parseFloat(b.amount) || 0), 0);
+    let netToday = prof - totalExpToday;
+
+    // 4. DETAILED CASH FLOW
+    // A. Lahat ng pumasok na CASH (Dapat isama ang lahat ng transaksyon na hindi "Out")
+    let totalRetailCash = sales.filter(s => !s.type || !s.type.toLowerCase().includes("out"))
+                               .reduce((a, b) => a + (parseFloat(b.total) || 0), 0);
+                               
+    let totalDigitalCashIn = sales.filter(s => s.type && s.type.toLowerCase().includes("in"))
+                                  .reduce((a, b) => a + (parseFloat(b.total) || 0), 0);
+    
+    // B. Lahat ng lumabas na CASH
+    let totalCashOuts = sales
+        .filter(s => s.type && s.type.toLowerCase().includes("out"))
+        .reduce((sum, s) => sum + (parseFloat(s.total) - (parseFloat(s.profit) || 0)), 0); 
+
+    // C. Lahat ng Gastos
+    let allExpenses = expenses.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+
+    // D. Digital Balance Movements
+    let totalDigiIn = sales.filter(s => s.type && s.type.toLowerCase().includes("in"))
+                           .reduce((a, b) => a + (parseFloat(b.total) - (parseFloat(b.profit) || 0)), 0);
+    let totalDigiOut = sales.filter(s => s.type && s.type.toLowerCase().includes("out"))
+                            .reduce((a, b) => a + (parseFloat(b.total) - (parseFloat(b.profit) || 0)), 0);
+
+    // 5. FINAL COMPUTATION
+    let expectedCash = (cashCap + totalRetailCash) - (totalCashOuts + allExpenses);
+    let digitalBalance = (digiCap - totalDigiIn) + totalDigiOut;
+
+    // 6. DISPLAY SA UI
+    document.getElementById('dash-cash-on-hand').innerText = "₱" + expectedCash.toFixed(2);
+    document.getElementById('dash-digital-wallet').innerText = "₱" + digitalBalance.toFixed(2);
+    document.getElementById('dash-sales').innerText = "₱" + rev.toFixed(2);
+    document.getElementById('dash-profit').innerText = "₱" + prof.toFixed(2);
+    
+    // Siguraduhin na 'dash-exp' ang gamit mong ID sa HTML
+    if(document.getElementById('dash-exp')) {
+        document.getElementById('dash-exp').innerText = "₱" + totalExpToday.toFixed(2);
+    }
+    
+    document.getElementById('dash-net').innerText = "₱" + netToday.toFixed(2);
+    document.getElementById('dash-net').style.color = netToday >= 0 ? "#27ae60" : "#e74c3c";
+}
+
+function checkLowStock() {
+    let low = products.filter(p => p.stock < 5);
+    let box = document.getElementById('low-stock-alert');
+    if(low.length > 0) {
+        box.style.display = 'block';
+        box.innerText = "⚠️ Low Stock: " + low.map(p => p.name).join(', ');
+    } else { box.style.display = 'none'; }
+}
+
+function exportToExcel(tID, fName) {
+    let table = document.getElementById(tID);
+    let url = 'data:application/vnd.ms-excel,' + encodeURIComponent(table.outerHTML);
+    let link = document.createElement("a");
+    link.href = url; link.download = fName + ".xls"; link.click();
+}
+
+function openModal(id) { document.getElementById(id).style.display = 'block'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+function printReceipt(t) {
+    let h = t.items.map(i => `<div>${i.name} x${i.qty} = ₱${(i.price*i.qty)}</div>`).join('');
+    document.getElementById('rec-items').innerHTML = h;
+    document.getElementById('rec-totals').innerHTML = `<b>TOTAL: ₱${t.total}</b><br>CASH: ₱${t.cash}<br>CHANGE: ₱${t.cash-t.total}`;
+    window.print();
+}
+
+function executeDailyClose() {
+    const today = new Date().toLocaleDateString();    
+    const todaySales = sales.filter(s => new Date(s.timestamp).toLocaleDateString() === today);
+
+    let existing = history.find(h => h.date === today);
+        if (existing) {
+            alert("⚠️ May Z-Reading na para sa araw na ito.");
+            return;
+        }
+
+    // 1. Kunin ang sales ngayong araw
+    
+
+    if (todaySales.length === 0) {
+        alert("Walang benta ngayong araw. Hindi pwedeng i-close.");
+        return;
+    }
+
+    if (!confirm("Sigurado ka bang i-co-close na ang araw na ito? Hindi na mababago ang data pagkatapos nito.")) {
+        return;
+    }
+
+    // 2. Compute totals
+    const totalSales = todaySales
+        .filter(s => s.id && s.id.startsWith("TXN-"))
+        .reduce((a, b) => a + b.total, 0);
+
+    const totalProfit = todaySales.reduce((a, b) => a + (b.profit || 0), 0);
+
+    // 3. Gawa ng report object
+    const report = {
+        reportID: "REP-" + Date.now(),
+        date: today,
+        salesCount: todaySales.length,
+        totalSales: totalSales,
+        totalProfit: totalProfit,
+        closedBy: currentUser.name
+    };
+
+    // 4. I-save sa History (Permanent Lock)
+    let closeHistory = JSON.parse(localStorage.getItem('pos_history')) || [];
+    closeHistory.push(report);
+    localStorage.setItem('pos_history', JSON.stringify(closeHistory));
+
+    // 5. Opsyonal: I-print ang Z-Reading (Summary Report)
+    printZReading(report, todaySales);
+
+    // 6. Refresh UI
+    alert("Day Closed Successfully! Data has been locked in History.");
+    renderHistory();
+    updateDashboard();
+}
+
+function printZReading(report, transactions) {
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <html>
+            <head>
+                <style>
+                    body { font-family: 'Courier New', monospace; width: 58mm; padding: 5px; }
+                    .center { text-align: center; }
+                    .line { border-top: 1px dashed black; margin: 5px 0; }
+                </style>
+            </head>
+            <body>
+                <div class="center">
+                    <b>Z-READING REPORT</b><br>
+                    ${report.date}
+                </div>
+                <div class="line"></div>
+                ID: ${report.reportID}<br>
+                Closed By: ${report.closedBy}<br>
+                <div class="line"></div>
+                Transactions: ${report.salesCount}<br>
+                <b>GROSS SALES: ₱${report.totalSales.toFixed(2)}</b><br>
+                <b>NET PROFIT:  ₱${report.totalProfit.toFixed(2)}</b><br>
+                <div class="line"></div>
+                <center>*** END OF REPORT ***</center>
+            </body>
+        </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+}
+
+function renderHistory() {
+    // 1. Kunin ang data (Dapat tugma ang key sa executeDailyClose)
+    let historyData = JSON.parse(localStorage.getItem('pos_history')) || [];
+    let html = '';
+    
+    // 2. Hanapin ang table body sa HTML
+    const tableBody = document.getElementById('history-body');
+    
+    // Safety check: Kung walang makitang element na 'history-body', wag ituloy
+    if (!tableBody) {
+        console.error("Error: 'history-body' element not found in HTML.");
+        return;
+    }
+
+    if (historyData.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Walang History Records.</td></tr>';
+        return;
+    }
+
+    // 3. I-reverse (copy muna gamit ang slice para hindi masira ang original array)
+    historyData.slice().reverse().forEach(h => {
+        html += `
+            <tr>
+                <td>${h.date}</td>
+                <td>₱${(h.totalSales || 0).toFixed(2)}</td>
+                <td>₱${(h.totalProfit || 0).toFixed(2)}</td>
+                <td>${h.closedBy || 'Admin'}</td>
+                <td><small style="color: gray;">${h.reportID}</small></td>
+            </tr>`;
+    });
+    
+    tableBody.innerHTML = html;
+}
+
+function saveExpense() {
+    let note = document.getElementById('exp-note').value;
+    let amt = parseFloat(document.getElementById('exp-amount').value);
+
+    if (!note || !amt) return alert("Paki-puno ang Note at Amount!");
+
+    let entry = {
+        id: Date.now(),
+        note: note,
+        amount: amt,
+        timestamp: new Date().toISOString()
+    };
+
+    expenses.push(entry);
+    localStorage.setItem('pos_expenses', JSON.stringify(expenses));
+    
+    // Clear inputs
+    document.getElementById('exp-note').value = '';
+    document.getElementById('exp-amount').value = '';
+    
+    renderExpenses();
+    updateDashboard(); // Mahalaga: para mag-update ang Net Income
+}
+
+// 3. Function para ipakita sa table
+function renderExpenses() {
+    let html = '';
+    let reverseExp = [...expenses].reverse(); // Pinakabago ang nasa taas
+
+    reverseExp.forEach(e => {
+        let date = new Date(e.timestamp).toLocaleDateString(undefined, { 
+            month: 'short', day: 'numeric', year: 'numeric' 
+        });
+
+        html += `
+            <tr class="expense-row">
+                <td style="padding: 12px; border-bottom: 1px solid #eee; color: #7f8c8d;">${date}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 500;">${e.note}</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; color: #e74c3c; font-weight: bold;">
+                    ₱${e.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}
+                </td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
+                    <button onclick="deleteExpense(${e.id})" 
+                            style="color: #e74c3c; border: 1px solid #f5b7b1; background: #fdedec; 
+                                   padding: 5px 8px; border-radius: 4px; cursor: pointer; transition: 0.3s;"
+                            onmouseover="this.style.background='#e74c3c'; this.style.color='white'"
+                            onmouseout="this.style.background='#fdedec'; this.style.color='#e74c3c'">
+                        🗑️ Delete
+                    </button>
+                </td>
+            </tr>`;
+    });
+
+    const tbody = document.getElementById('expense-body');
+    tbody.innerHTML = html || '<tr><td colspan="4" style="text-align:center; padding: 40px; color: #95a5a6;">📭 Walang naitalang gastos ngayong araw.</td></tr>';
+}
+
+function deleteExpense(id) {
+    if (confirm("Siguradong buburahin ito?")) {
+        expenses = expenses.filter(e => e.id !== id);
+        localStorage.setItem('pos_expenses', JSON.stringify(expenses));
+        renderExpenses();
+        updateDashboard();
+    }
+}
+
+function saveCapitals() {
+    let cashCap = parseFloat(document.getElementById('input-cash-capital').value) || 0;
+    let digiCap = parseFloat(document.getElementById('input-digital-capital').value) || 0;
+
+    localStorage.setItem('pos_capital', cashCap);
+    localStorage.setItem('pos_digital_capital', digiCap);
+
+    alert("Capitals saved! I-a-update na ang iyong balances.");
+    updateDashboard();
+}
+
+function downloadBackup() {
+
+    const backup = {
+        meta: {
+            app: "ProPOS",
+            version: "1.0",
+            createdAt: new Date().toISOString()
+        },
+        sales: sales || [],
+        products: products || [],
+        expenses: expenses || [],
+        history: history || [],
+        capitals: {
+            cash: localStorage.getItem('pos_capital') || 0,
+            digital: localStorage.getItem('pos_digital_capital') || 0
+        }
+    };
+
+    const dataStr = "data:text/json;charset=utf-8," +
+        encodeURIComponent(JSON.stringify(backup, null, 2));
+
+    const a = document.createElement('a');
+    a.href = dataStr;
+    a.download = "pos_full_backup_" +
+        new Date().toISOString().slice(0, 10) + ".json";
+
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+}
+
+function restoreBackup(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const data = JSON.parse(e.target.result);
+        products = data.products || [];
+        sales = data.sales || [];
+        expenses = data.expenses || [];
+        history = data.history || [];
+        if(data.capitals) {
+            localStorage.setItem('pos_capital', data.capitals.cash);
+            localStorage.setItem('pos_digital_capital', data.capitals.digital);
+        }
+        localStorage.setItem('pos_inventory', JSON.stringify(products));
+        localStorage.setItem('pos_sales', JSON.stringify(sales));
+        localStorage.setItem('pos_expenses', JSON.stringify(expenses));
+        localStorage.setItem('pos_history', JSON.stringify(history));
+        refreshAll();
+        alert("Backup restored successfully!");
+    }
+    reader.readAsText(file);
+}
+
+function handleRestore(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    if(!confirm("⚠️ Sigurado ka ba na gusto mong i-restore ang backup? Papalitan nito ang lahat ng current data.")) {
+        e.target.value = ''; // reset file input
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        try {
+            const data = JSON.parse(event.target.result);
+
+            // Restore tables
+            products = data.products || [];
+            sales = data.sales || [];
+            expenses = data.expenses || [];
+            history = data.history || [];
+
+            // Restore capitals
+            if(data.capitals) {
+                localStorage.setItem('pos_capital', data.capitals.cash);
+                localStorage.setItem('pos_digital_capital', data.capitals.digital);
+            }
+
+            // Save all to localStorage
+            localStorage.setItem('pos_inventory', JSON.stringify(products));
+            localStorage.setItem('pos_sales', JSON.stringify(sales));
+            localStorage.setItem('pos_expenses', JSON.stringify(expenses));
+            localStorage.setItem('pos_history', JSON.stringify(history));
+
+            // Refresh UI
+            refreshAll();
+            alert("✅ Backup restored successfully!");
+        } catch(err) {
+            alert("❌ Error restoring backup: Invalid file format.");
+        }
+
+        e.target.value = ''; // reset file input
+    };
+    reader.readAsText(file);
+}
+
+function generateDailySummary() {
+    let today = new Date().toLocaleDateString();
+    let todaySales = sales.filter(s => new Date(s.timestamp).toLocaleDateString() === today);
+    let todayExpenses = expenses.filter(e => new Date(e.timestamp).toLocaleDateString() === today);
+
+    // 1. Calculations
+    let totalFees = todaySales.reduce((a, b) => a + (parseFloat(b.profit) || 0), 0);
+    let totalExp = todayExpenses.reduce((a, b) => a + (parseFloat(b.amount) || 0), 0);
+    let netIncome = totalFees - totalExp;
+
+    // 2. Cash Movements (Safe Filtering)
+    // Pumasok na Cash = Retail Sales + Digital Cash-In (Amount Only)
+    let retailCash = todaySales.filter(s => s.id && s.id.startsWith("TXN-")).reduce((a, b) => a + b.total, 0);
+    
+    let cashInRemittance = todaySales.filter(s => s.type && s.type.toLowerCase().includes("in"))
+                                     .reduce((a, b) => a + (b.total - (b.profit || 0)), 0);
+
+    // Lumabas na Cash = Digital Cash-Out (Amount Only)
+    let cashOutRemittance = todaySales.filter(s => s.type && s.type.toLowerCase().includes("out"))
+                                      .reduce((a, b) => a + (b.total - (b.profit || 0)), 0);
+
+    let report = `
+=== DAILY BUSINESS SUMMARY ===
+Petsa: ${today}
+
+💰 FINANCIAL PERFORMANCE:
+- Total Gross Profit: ₱${totalFees.toFixed(2)}
+- Total Expenses: ₱${totalExp.toFixed(2)}
+- Net Income: ₱${netIncome.toFixed(2)}
+
+🔄 CASH FLOW TODAY:
+- Retail Sales (Tindahan): ₱${retailCash.toFixed(2)}
+- Remittance Cash-In: ₱${cashInRemittance.toFixed(2)}
+- Remittance Cash-Out: ₱${cashOutRemittance.toFixed(2)}
+
+📢 STATUS:
+${netIncome >= 0 ? "✅ Maganda ang kita ngayong araw!" : "⚠️ Mas malaki ang gastos kaysa sa kita."}
+==============================
+    `;
+
+    alert(report);
+}
+
+async function syncToCloud(txnData) {
+    // PALITAN MO ITO ng URL na nakuha mo sa Google Deployment
+    const scriptURL = "YOUR_GOOGLE_SCRIPT_URL_HERE";
+    
+    try {
+        await fetch(scriptURL, {
+            method: 'POST',
+            mode: 'no-cors', 
+            body: JSON.stringify(txnData),
+            headers: { 'Content-Type': 'application/json' }
+        });
+        console.log("Cloud Sync Success!");
+    } catch (error) {
+        console.error("Cloud Sync Error:", error);
+    }
+}
+
+async function pullFromCloud() {
+    const scriptURL = "YOUR_GOOGLE_SCRIPT_URL_HERE"; // Gamitin ang parehong URL
+    const btn = event.target;
+    
+    if(!confirm("Gusto mo bang i-sync ang data mula sa Cloud? Madadagdag ito sa iyong kasalukuyang records.")) return;
+
+    btn.innerText = "Syncing...";
+    btn.disabled = true;
+
+    try {
+        const response = await fetch(scriptURL);
+        const cloudData = await response.json();
+
+        if (cloudData.length > 0) {
+            // Pagsamahin ang local sales at cloud sales, i-filter ang duplicates base sa ID
+            const existingIds = new Set(sales.map(s => s.id));
+            const newData = cloudData.filter(item => !existingIds.has(item.id));
+
+            sales = [...sales, ...newData];
+            localStorage.setItem('pos_sales', JSON.stringify(sales));
+            
+            alert(`Success! ${newData.length} bagong records ang na-sync.`);
+            refreshAll();
+        } else {
+            alert("Walang data na nahanap sa Cloud.");
+        }
+    } catch (error) {
+        console.error("Pull Error:", error);
+        alert("Error sa pagkuha ng data. Siguraduhing tama ang URL at may internet.");
+    } finally {
+        btn.innerText = "Sync from Cloud";
+        btn.disabled = false;
+    }
+}
+</script>
+</body>
+</html>
